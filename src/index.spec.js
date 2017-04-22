@@ -2,8 +2,8 @@
 
 import sinon from 'sinon';
 
+import { build } from 'ladda-cache';
 import { curry, head, last, toIdMap, values } from 'ladda-fp';
-import { build } from '../../builder';
 import { denormalizer, extractAccessors } from '.';
 
 const peter = { id: 'peter' };

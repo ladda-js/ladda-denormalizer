@@ -1,7 +1,7 @@
 {
-  "name": "ladda-cache",
+  "name": "ladda-denormalizer",
   "version": "0.2.0",
-  "description": "Data fetching layer with support for caching",
+  "description": "Denormalization plugin for ladda",
   "main": "dist/bundle.js",
   "dependencies": {
     "ladda-fp": "^0.2.0"
@@ -27,8 +27,6 @@
     "webpack": "^2.4.1"
   },
   "scripts": {
-    "docs:prepare": "gitbook install",
-    "docs:watch": "npm run docs:prepare && gitbook serve",
     "test": "env NODE_PATH=$NODE_PATH:$PWD/src ./node_modules/.bin/mocha --compilers js:babel-register --reporter spec src/*.spec.js 'src/**/*.spec.js' --require mocha.config",
     "coverage": "env NODE_PATH=$NODE_PATH:$PWD/src nyc -x '**/*.spec.js' -x '**/*.config.js' --reporter=lcov --reporter=text mocha --compilers js:babel-register --reporter spec src/*.spec.js 'src/**/*.spec.js' --require mocha.config",
     "lint": "eslint src",
@@ -41,7 +39,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ladda-js/ladda.git"
+    "url": "https://github.com/ladda-js/ladda-denormalizer.git"
   },
-  "homepage": "https://github.com/ladda-js/ladda"
+  "homepage": "https://github.com/ladda-js/ladda-denormalizer"
 }

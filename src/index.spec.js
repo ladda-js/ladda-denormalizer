@@ -529,6 +529,25 @@ describe('denormalizer', () => {
   });
 });
 
+describe('can resolve entities recursively', () => {
+  const createConfig = () => {
+    const c = config();
+    c.user.plugins.denormalizer.schema = {
+      manager: 'user'
+    };
+    return c;
+  };
+
+  it('works for a single level', () => {
+    const api = build(createConfig(), [denormalizer()]);
+    return api.user.getUser('peter').then((u) => {
+      expect(u.manager).to.be.an('object');
+      expect(u.manager.id).to.equal('gernot');
+      expect(u.manager.manager).to.be.null;
+    });
+  });
+});
+
 describe('denormalization-helpers', () => {
   const createConfig = () => [
     {

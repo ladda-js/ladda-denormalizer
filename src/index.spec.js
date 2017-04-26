@@ -3,12 +3,12 @@
 import sinon from 'sinon';
 
 import { build } from 'ladda-cache';
-import { curry, head, last, toIdMap, values } from 'ladda-fp';
+import { curry, head, toIdMap, values } from 'ladda-fp';
 import { denormalizer, extractAccessors } from '.';
 
-const peter = { id: 'peter' };
-const gernot = { id: 'gernot' };
-const robin = { id: 'robin' };
+const peter = { id: 'peter', manager: 'gernot' };
+const gernot = { id: 'gernot', manager: null };
+const robin = { id: 'robin', manager: 'peter' };
 
 const users = toIdMap([peter, gernot, robin]);
 
@@ -36,7 +36,17 @@ const m2 = {
   }
 };
 
-const messages = toIdMap([m1, m2]);
+const m3 = {
+  id: 'z',
+  author: robin.id,
+  recipient: null,
+  visibleTo: [],
+  nestedData: {
+    comments: []
+  }
+};
+
+const messages = toIdMap([m1, m2, m3]);
 
 const getById = curry((m, id) => Promise.resolve(m[id]));
 const getAll = (m) => () => Promise.resolve(values(m));
@@ -488,22 +498,33 @@ describe('denormalizer', () => {
       const start = () => build(conf, [denormalizer()]);
       expect(start).not.to.throw;
     });
+
+    it('handles null values properly', () => {
+      const api = build(config(), [denormalizer()]);
+      return api.message.getMessage(m3.id).then((msg) => {
+        expectResolved('author', users[m3.author], msg);
+        expectResolved('recipient', null, msg);
+      });
+    });
   });
 
   describe('with a fn, that returns a list of objects', () => {
-    it('resolves references to simple id fields', (done) => {
+    it('resolves references to simple id fields', () => {
       const api = build(config(), [denormalizer()]);
-      api.message.getMessages()
+      return api.message.getMessages()
         .then((msgs) => {
           const fst = head(msgs);
-          const snd = last(msgs);
+          const snd = msgs[1];
+          const trd = msgs[2];
           expectResolved('author', users[m1.author])(fst);
           expectResolved('recipient', users[m1.recipient])(fst);
 
           expectResolved('author', users[m2.author])(snd);
           expectResolved('recipient', users[m2.recipient])(snd);
-        })
-        .then(() => done());
+
+          expectResolved('author', users[m3.author])(trd);
+          expectResolved('recipient', null)(trd);
+        });
     });
   });
 });

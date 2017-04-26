@@ -21,6 +21,13 @@ import {
 
 export const NAME = 'denormalizer';
 
+const compact = (l) => reduce((m, el) => {
+  if (el) {
+    m.push(el);
+  }
+  return m;
+}, [], l);
+
 const def = curry((a, b) => b || a);
 
 const getApi = curry((configs, entityName) => compose(prop('api'), prop(entityName))(configs));
@@ -49,7 +56,9 @@ const collectTargets = curry((accessors, res, item) => {
 const resolveItem = curry((accessors, entities, item) => {
   return reduce((m, [path, type]) => {
     const val = get(path, item);
-    const getById = (id) => entities[type][id];
+    const getById = (id) => {
+      return id === null || id === undefined ? id : entities[type][id];
+    };
     const resolvedVal = Array.isArray(val) ? map(getById, val) : getById(val);
     return set(path, resolvedVal, m);
   }, item, accessors);
@@ -60,15 +69,16 @@ const resolveItems = curry((accessors, items, entities) => {
 });
 
 const requestEntities = curry(({ getOne, getSome, getAll, threshold }, ids) => {
-  const noOfItems = ids.length;
+  const validIds = compact(ids);
+  const noOfItems = validIds.length;
 
   if (noOfItems === 1) {
-    return getOne(ids[0]).then((e) => [e]);
+    return getOne(validIds[0]).then((e) => [e]);
   }
   if (noOfItems > threshold && getAll) {
     return getAll();
   }
-  return getSome(ids);
+  return getSome(validIds);
 });
 
 const resolve = curry((fetchers, accessors, items) => {

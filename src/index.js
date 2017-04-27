@@ -1,5 +1,5 @@
 import {
-  compose, curry, head, map, map_, mapObject, mapValues,
+  compose, curry, head, init, last, map, map_, mapObject, mapValues,
   prop, reduce, fromPairs, toPairs, values,
   uniq, flatten, get, set, snd, toIdMap
 } from 'ladda-fp';
@@ -34,6 +34,10 @@ const compact = (l) => reduce((m, el) => {
 }, [], l);
 
 const def = curry((a, b) => b || a);
+
+const isSecretParam = (obj) => obj && obj.__laddaDenormalizerParams;
+const getSecretParamPayload = (obj) => obj.__laddaDenormalizerParams;
+const createSecretParam = (payload = {}) => ({ __laddaDenormalizerParams: payload });
 
 const getApi = curry((configs, entityName) => compose(prop('api'), prop(entityName))(configs));
 
@@ -73,23 +77,25 @@ const resolveItems = curry((accessors, items, entities) => {
   return map(resolveItem(accessors, entities), items);
 });
 
-const requestEntities = curry(({ getOne, getSome, getAll, threshold }, ids) => {
+const requestEntities = curry(({ getOne, getSome, getAll, threshold }, params, ids) => {
   const validIds = compact(ids);
   const noOfItems = validIds.length;
 
+  const nextParams = createSecretParam({ ...params, level: params.level + 1 });
+
   if (noOfItems === 1) {
-    return getOne.fn(validIds[0]).then((e) => [e]);
+    return getOne.fn(validIds[0], nextParams).then((e) => [e]);
   }
   if (noOfItems > threshold && getAll.fn) {
-    return getAll.fn();
+    return getAll.fn(nextParams);
   }
-  return getSome.fn(validIds);
+  return getSome.fn(validIds, nextParams);
 });
 
-const resolve = curry((fetchers, accessors, items) => {
+const resolve = curry((fetchers, accessors, params, items) => {
   const requestsToMake = compose(reduce(collectTargets(accessors), {}))(items);
   return Promise.all(mapObject(([t, ids]) => {
-    return requestEntities(fetchers[t], ids).then((es) => [t, es]);
+    return requestEntities(fetchers[t], params, ids).then((es) => [t, es]);
   }, requestsToMake)).then(
     compose(resolveItems(accessors, items), mapValues(toIdMap), fromPairs)
   );
@@ -139,12 +145,11 @@ const extractFetchers = (pluginConfig, configs, types) => {
     const getSome = nameFromApi('getSome');
     const getAll = nameFromApi('getAll');
     const threshold = getConfField('threshold', [conf, pluginConfig]);
-    const maxDepth = getConfField('maxDepth', [conf, pluginConfig]);
 
     if (!getOne.name) {
       throw new Error(`No 'getOne' accessor defined on type ${t}`);
     }
-    return [t, { getOne, getSome, getAll, threshold, maxDepth }];
+    return [t, { getOne, getSome, getAll, threshold }];
   }))(types);
 };
 
@@ -164,12 +169,19 @@ const mergeFetchersAndDecoratedFns = curry((fetchers, decoratedFns) => {
       const addFn = (p, d) => { fnDef[p].fn = getFn(fnDef[p].name, d); };
 
       addFn('getOne');
-      addFn('getSome', (is) => Promise.all(map(fnDef.getOne.fn, is)));
+      addFn('getSome', (ids, p) => Promise.all(map((id) => fnDef.getOne.fn(id, p), ids)));
       addFn('getAll');
     }),
     toPairs,
   )(fetchers);
 });
+
+const splitArgsAndParams = (allArgs, maxDepth) => {
+  if (isSecretParam(last(allArgs))) {
+    return { args: init(allArgs), params: getSecretParamPayload(last(allArgs)) };
+  }
+  return { args: allArgs, params: { level: 0, maxDepth } };
+};
 
 export const denormalizer = (pluginConfig = {}) => ({ entityConfigs }) => {
   const allAccessors = extractAccessors(values(entityConfigs));
@@ -178,7 +190,10 @@ export const denormalizer = (pluginConfig = {}) => ({ entityConfigs }) => {
   let setupCompleted = false;
 
   return ({ entity, fn }) => {
-    const finalFn = (...args) => {
+    const finalFn = (...allArgs) => {
+      const maxDepth = getConfField('maxDepth', [pluginConfig, getPluginConf_(entity)]);
+      const { args, params } = splitArgsAndParams(allArgs, maxDepth);
+
       return fn(...args).then((res) => {
         const accessors = allAccessors[entity.name];
         if (!accessors) {
@@ -190,10 +205,14 @@ export const denormalizer = (pluginConfig = {}) => ({ entityConfigs }) => {
           setupCompleted = true;
         }
 
+        if (params.level >= params.maxDepth) {
+          return res;
+        }
+
         const isArray = Array.isArray(res);
         const items = isArray ? res : [res];
 
-        const resolved = resolve(allFetchers, accessors, items);
+        const resolved = resolve(allFetchers, accessors, params, items);
         return isArray ? resolved : resolved.then(head);
       });
     };

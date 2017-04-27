@@ -557,6 +557,29 @@ describe('can resolve entities recursively', () => {
       expect(u.manager.manager.manager).to.be.null;
     });
   });
+
+  it('allows to restrict maxDepth to resolve (through entity config)', () => {
+    const c = createConfig();
+    c.user.plugins.denormalizer.maxDepth = 1;
+    const api = build(c, [denormalizer()]);
+
+    return api.user.getUser('robin').then((u) => {
+      expect(u.manager).to.be.an('object');
+      expect(u.manager.id).to.equal('peter');
+      expect(u.manager.manager).to.equal('gernot');
+    });
+  });
+
+  it('allows to restrict maxDepth to resolve (through plugin config)', () => {
+    const c = createConfig();
+    const api = build(c, [denormalizer({ maxDepth: 1 })]);
+
+    return api.user.getUser('robin').then((u) => {
+      expect(u.manager).to.be.an('object');
+      expect(u.manager.id).to.equal('peter');
+      expect(u.manager.manager).to.equal('gernot');
+    });
+  });
 });
 
 describe('denormalization-helpers', () => {

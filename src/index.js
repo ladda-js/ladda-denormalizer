@@ -38,14 +38,17 @@ const def = curry((a, b) => b || a);
 const isSecretParam = (obj) => obj && obj.__laddaDenormalizerParams;
 const getSecretParamPayload = (obj) => obj.__laddaDenormalizerParams;
 const createSecretParam = (payload = {}) => ({ __laddaDenormalizerParams: payload });
+const increateSecretParamPayloadLevel = (payload) => ({ ...payload, level: payload.level + 1 });
 
 const getApi = curry((configs, entityName) => compose(prop('api'), prop(entityName))(configs));
-
 const getPluginConf_ = curry((config) => compose(prop(NAME), def({}), prop('plugins'))(config));
-
 const getSchema_ = (config) => compose(prop('schema'), def({}), getPluginConf_)(config);
-
 const getPluginConf = curry((cs, entityName) => getPluginConf_(cs[entityName]));
+
+const getConfField = curry((field, objs) => {
+  const finalVal = reduce((val, obj) => (val !== undefined ? val : obj[field]), undefined, objs);
+  return finalVal === undefined ? DEFAULTS[field] : finalVal;
+});
 
 const collectTargets = curry((accessors, res, item) => {
   return reduce((m, [path, type]) => {
@@ -81,7 +84,10 @@ const requestEntities = curry(({ getOne, getSome, getAll, threshold }, params, i
   const validIds = compact(ids);
   const noOfItems = validIds.length;
 
-  const nextParams = createSecretParam({ ...params, level: params.level + 1 });
+  const nextParams = compose(
+    createSecretParam,
+    increateSecretParamPayloadLevel
+  )(params);
 
   if (noOfItems === 1) {
     return getOne.fn(validIds[0], nextParams).then((e) => [e]);
@@ -125,11 +131,6 @@ export const extractAccessors = (configs) => {
   }, {}, configs);
   return mapValues(compose(map(([ps, v]) => [ps.split('.'), v]), toPairs))(asMap);
 };
-
-const getConfField = curry((field, objs) => {
-  const finalVal = reduce((val, obj) => (val !== undefined ? val : obj[field]), undefined, objs);
-  return finalVal === undefined ? DEFAULTS[field] : finalVal;
-});
 
 // PluginConfig -> EntityConfigs -> [Type] -> Map Type FetcherDef
 const extractFetchers = (pluginConfig, configs, types) => {
@@ -189,30 +190,33 @@ export const denormalizer = (pluginConfig = {}) => ({ entityConfigs }) => {
   const decoratedFns = {};
   let setupCompleted = false;
 
+  const ensureCompletedSetup = () => {
+    if (!setupCompleted) {
+      mergeFetchersAndDecoratedFns(allFetchers, decoratedFns);
+      setupCompleted = true;
+    }
+  };
+
+  const getAccessor = (entity) => allAccessors[entity.name];
+  const needsResolution = (entity) => !!getAccessor(entity);
+  const reachedMaxDepth = (params) => params.level >= params.maxDepth;
+
   return ({ entity, fn }) => {
     const finalFn = (...allArgs) => {
       const maxDepth = getConfField('maxDepth', [pluginConfig, getPluginConf_(entity)]);
       const { args, params } = splitArgsAndParams(allArgs, maxDepth);
 
       return fn(...args).then((res) => {
-        const accessors = allAccessors[entity.name];
-        if (!accessors) {
+        if (!needsResolution(entity) || reachedMaxDepth(params)) {
           return res;
         }
 
-        if (!setupCompleted) {
-          mergeFetchersAndDecoratedFns(allFetchers, decoratedFns);
-          setupCompleted = true;
-        }
-
-        if (params.level >= params.maxDepth) {
-          return res;
-        }
+        ensureCompletedSetup();
 
         const isArray = Array.isArray(res);
         const items = isArray ? res : [res];
 
-        const resolved = resolve(allFetchers, accessors, params, items);
+        const resolved = resolve(allFetchers, getAccessor(entity), params, items);
         return isArray ? resolved : resolved.then(head);
       });
     };

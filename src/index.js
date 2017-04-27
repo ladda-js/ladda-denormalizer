@@ -21,6 +21,11 @@ import {
 
 export const NAME = 'denormalizer';
 
+const DEFAULTS = {
+  threshold: Infinity,
+  maxDepth: 12
+};
+
 const compact = (l) => reduce((m, el) => {
   if (el) {
     m.push(el);
@@ -115,6 +120,11 @@ export const extractAccessors = (configs) => {
   return mapValues(compose(map(([ps, v]) => [ps.split('.'), v]), toPairs))(asMap);
 };
 
+const getConfField = curry((field, objs) => {
+  const finalVal = reduce((val, obj) => (val !== undefined ? val : obj[field]), undefined, objs);
+  return finalVal === undefined ? DEFAULTS[field] : finalVal;
+});
+
 // PluginConfig -> EntityConfigs -> [Type] -> Map Type FetcherDef
 const extractFetchers = (pluginConfig, configs, types) => {
   return compose(fromPairs, map((t) => {
@@ -128,12 +138,13 @@ const extractFetchers = (pluginConfig, configs, types) => {
     const getOne = nameFromApi('getOne');
     const getSome = nameFromApi('getSome');
     const getAll = nameFromApi('getAll');
-    const threshold = conf.threshold || pluginConfig.threshold || Infinity;
+    const threshold = getConfField('threshold', [conf, pluginConfig]);
+    const maxDepth = getConfField('maxDepth', [conf, pluginConfig]);
 
     if (!getOne.name) {
       throw new Error(`No 'getOne' accessor defined on type ${t}`);
     }
-    return [t, { getOne, getSome, getAll, threshold }];
+    return [t, { getOne, getSome, getAll, threshold, maxDepth }];
   }))(types);
 };
 

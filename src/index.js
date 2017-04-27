@@ -1,5 +1,5 @@
 import {
-  compose, curry, head, map, mapObject, mapValues,
+  compose, curry, head, map, map_, mapObject, mapValues,
   prop, reduce, fromPairs, toPairs, values,
   uniq, flatten, get, set, snd, toIdMap
 } from 'ladda-fp';
@@ -10,10 +10,10 @@ import {
  *
  * Accessors = [ (Path, Type | [Type]) ]
  *
- * Fetcher = {
- *  getOne: id -> Promise Entity
- *  getSome: [id] -> Promise [Entity]
- *  getAll: Promise [Entity]
+ * FetcherDef = {
+ *  getOne: { name: String, fn: id -> Promise Entity }
+ *  getSome: { name: String, fn: [id] -> Promise [Entity] }
+ *  getAll: { name: string, fn: Promise [Entity] }
  *  threshold: Int
  * }
  *
@@ -73,12 +73,12 @@ const requestEntities = curry(({ getOne, getSome, getAll, threshold }, ids) => {
   const noOfItems = validIds.length;
 
   if (noOfItems === 1) {
-    return getOne(validIds[0]).then((e) => [e]);
+    return getOne.fn(validIds[0]).then((e) => [e]);
   }
-  if (noOfItems > threshold && getAll) {
-    return getAll();
+  if (noOfItems > threshold && getAll.fn) {
+    return getAll.fn();
   }
-  return getSome(validIds);
+  return getSome.fn(validIds);
 });
 
 const resolve = curry((fetchers, accessors, items) => {
@@ -115,7 +115,7 @@ export const extractAccessors = (configs) => {
   return mapValues(compose(map(([ps, v]) => [ps.split('.'), v]), toPairs))(asMap);
 };
 
-// PluginConfig -> EntityConfigs -> [Type] -> Map Type Fetcher
+// PluginConfig -> EntityConfigs -> [Type] -> Map Type FetcherDef
 const extractFetchers = (pluginConfig, configs, types) => {
   return compose(fromPairs, map((t) => {
     const conf = getPluginConf(configs, t);
@@ -124,13 +124,13 @@ const extractFetchers = (pluginConfig, configs, types) => {
       throw new Error(`No denormalizer config found for type ${t}`);
     }
 
-    const fromApi = (p) => api[conf[p]];
-    const getOne = fromApi('getOne');
-    const getSome = fromApi('getSome') || ((is) => Promise.all(map(getOne, is)));
-    const getAll = fromApi('getAll');
+    const nameFromApi = (p) => ({ name: (api[conf[p]] || {}).name });
+    const getOne = nameFromApi('getOne');
+    const getSome = nameFromApi('getSome');
+    const getAll = nameFromApi('getAll');
     const threshold = conf.threshold || pluginConfig.threshold || Infinity;
 
-    if (!getOne) {
+    if (!getOne.name) {
       throw new Error(`No 'getOne' accessor defined on type ${t}`);
     }
     return [t, { getOne, getSome, getAll, threshold }];
@@ -140,17 +140,45 @@ const extractFetchers = (pluginConfig, configs, types) => {
 // Map Type Accessors -> [Type]
 const extractTypes = compose(uniq, flatten, map(snd), flatten, values);
 
+const registerDecoratedFn = curry((fns, entityName, fnName, fn) => {
+  const eContainer = fns[entityName] || {};
+  eContainer[fnName] = fn;
+  fns[entityName] = eContainer;
+});
+
+const mergeFetchersAndDecoratedFns = curry((fetchers, decoratedFns) => {
+  compose(
+    map_(([entityName, fnDef]) => {
+      const getFn = (n, d = null) => (n ? decoratedFns[entityName][n] : d);
+      const addFn = (p, d) => { fnDef[p].fn = getFn(fnDef[p].name, d); };
+
+      addFn('getOne');
+      addFn('getSome', (is) => Promise.all(map(fnDef.getOne.fn, is)));
+      addFn('getAll');
+    }),
+    toPairs,
+  )(fetchers);
+});
+
 export const denormalizer = (pluginConfig = {}) => ({ entityConfigs }) => {
   const allAccessors = extractAccessors(values(entityConfigs));
   const allFetchers = extractFetchers(pluginConfig, entityConfigs, extractTypes(allAccessors));
+  const decoratedFns = {};
+  let setupCompleted = false;
 
   return ({ entity, fn }) => {
-    const accessors = allAccessors[entity.name];
-    if (!accessors) {
-      return fn;
-    }
-    return (...args) => {
+    const finalFn = (...args) => {
       return fn(...args).then((res) => {
+        const accessors = allAccessors[entity.name];
+        if (!accessors) {
+          return res;
+        }
+
+        if (!setupCompleted) {
+          mergeFetchersAndDecoratedFns(allFetchers, decoratedFns);
+          setupCompleted = true;
+        }
+
         const isArray = Array.isArray(res);
         const items = isArray ? res : [res];
 
@@ -158,5 +186,8 @@ export const denormalizer = (pluginConfig = {}) => ({ entityConfigs }) => {
         return isArray ? resolved : resolved.then(head);
       });
     };
+
+    registerDecoratedFn(decoratedFns, entity.name, fn.name, finalFn);
+    return finalFn;
   };
 };

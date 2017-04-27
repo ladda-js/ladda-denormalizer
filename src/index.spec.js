@@ -546,6 +546,17 @@ describe('can resolve entities recursively', () => {
       expect(u.manager.manager).to.be.null;
     });
   });
+
+  it('works for multiple levels', () => {
+    const api = build(createConfig(), [denormalizer()]);
+    return api.user.getUser('robin').then((u) => {
+      expect(u.manager).to.be.an('object');
+      expect(u.manager.id).to.equal('peter');
+      expect(u.manager.manager).to.be.an('object');
+      expect(u.manager.manager.id).to.equal('gernot');
+      expect(u.manager.manager.manager).to.be.null;
+    });
+  });
 });
 
 describe('denormalization-helpers', () => {

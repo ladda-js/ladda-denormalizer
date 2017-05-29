@@ -141,7 +141,7 @@ const extractFetchers = (pluginConfig, configs, types) => {
       throw new Error(`No denormalizer config found for type ${t}`);
     }
 
-    const nameFromApi = (p) => ({ name: (api[conf[p]] || {}).name });
+    const nameFromApi = (p) => ({ name: (api[conf[p]] || {}).fnName });
     const getOne = nameFromApi('getOne');
     const getSome = nameFromApi('getSome');
     const getAll = nameFromApi('getAll');
@@ -221,7 +221,7 @@ export const denormalizer = (pluginConfig = {}) => ({ entityConfigs }) => {
       });
     };
 
-    registerDecoratedFn(decoratedFns, entity.name, fn.name, finalFn);
+    registerDecoratedFn(decoratedFns, entity.name, fn.fnName, finalFn);
     return finalFn;
   };
 };
